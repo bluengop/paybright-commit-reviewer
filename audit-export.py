@@ -1,9 +1,9 @@
-from headers import print_headers,get_filename,writeout;
-from github import Github, RateLimitExceededException;
+from headers import print_headers,get_filename,writeout
+from github import Github, RateLimitExceededException
 import hashlib
-from datetime import datetime,timedelta;
-from time import sleep;
-import sys;
+from datetime import datetime,timedelta
+from time import sleep
+import sys
 import os
 
 
