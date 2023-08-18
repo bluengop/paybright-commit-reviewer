@@ -4,7 +4,7 @@ import hashlib
 from datetime import datetime,timedelta
 from time import sleep
 import sys
-
+import argparse
 
 def write_commit_to_file(fp,repository,commit,reviews):
     commit_detail = commit.commit
@@ -14,39 +14,62 @@ def write_commit_to_file(fp,repository,commit,reviews):
     fp.flush()
 
 def main():
-    PAT=sys.argv[1]
-    repository= f'Paybright/{sys.argv[2]}'  #"Paybright/Looker_paybright_project"
-    file_name = get_filename(sys.argv[3]) ##"export.csv"
-    branch = sys.argv[4]
-    required_review_num= int(sys.argv[5] or '2') # required amount of reviews
-    weeks=12 # weeks to go back
+    # Create argument parser
+    parser = argparse.ArgumentParser(description="Paybright commit reviewer script")
 
-    print(f'{sys.argv}')
+    # Add arguments
+    parser.add_argument("--github-pat",
+                        help="GitHub's Personal Access Token to access repos",
+                        type=str,
+                        required=True)
+    parser.add_argument("--repository",
+                        help="GitHub's repo for the commit review",
+                        type=str,
+                        required=True)      ### repository= f'Paybright/{sys.argv[2]}'  #"Paybright/Looker_paybright_project"
+    parser.add_argument("--filename",
+                        help="Name for the CSV report file",
+                        type=str,
+                        required=True)      ### filename = get_filename(sys.argv[3])    #"export.csv"
+    parser.add_argument("--branch",
+                        help="Git branch to review inside the repo",
+                        type=str,
+                        required=True)
+    parser.add_argument("--required_review_num",
+                        help="Required amount of reviews",
+                        type=int,
+                        default=2)
+    parser.add_argument("--weeks",
+                        help="Number of weeks to go back",
+                        type=int,
+                        default=12)
+    
+    args = parser.parse_args()
 
-    now = datetime.now()
+    # Authenticate against GitHub's API using Personal Access Token
+    github_api = Github(args.github_pat)
 
-    file_date_format = now.strftime("%Y-%m-%d")
-
-    github_api = Github(PAT)
-
+    # Calculate Start date and End date
     now = datetime.today()
-    # startDate = datetime(2021,6,1,0,0,0,0)  #datetime.strptime("01/06/2021", '%d/%m/%y')
-    # endDate = datetime(2022,7,1,0,0,0,0)  #datetime.strptime("01/06/2021", '%d/%m/%y')
 
-    date_offset=7*weeks
-    startDate = now - timedelta(days=now.weekday()+1, hours=now.hour, seconds=now.second ,minutes=now.minute,microseconds=now.microsecond) -  timedelta(days=date_offset)
+    date_offset=7*args.weeks
+
+    startDate = now - timedelta(days=now.weekday()+1,
+                                hours=now.hour,
+                                seconds=now.second,
+                                minutes=now.minute,
+                                microseconds=now.microsecond) - timedelta(days=date_offset)
     endDate = startDate + timedelta(days=date_offset)
 
-    file_name = f"{file_name}_{startDate.strftime('%Y-%m-%d')}_{endDate.strftime('%Y-%m-%d')}"
-    csv_file =f"{file_name}.csv"
+    # Generating filename for the resultant CSV report
+    file_name = f"{args.filename}_{startDate.strftime('%Y-%m-%d')}_{endDate.strftime('%Y-%m-%d')}"
+    csv_file = f"{file_name}.csv"
     fp = open(csv_file, "w", buffering=1)
-
-    index=0
     print_headers(fp)
-
-    repo = github_api.get_repo(repository)
-    commits = repo.get_commits(branch, "", since=startDate, until=endDate)
-
+    
+    index=0
+   
+    repo = github_api.get_repo(args.repository)
+    commits = repo.get_commits(args.branch, "", since=startDate, until=endDate)
 
     for commit in commits:
         while True:
@@ -101,4 +124,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
