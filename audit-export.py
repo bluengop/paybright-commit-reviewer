@@ -4,7 +4,6 @@ import hashlib
 from datetime import datetime,timedelta
 from time import sleep
 import sys
-import os
 
 
 PAT=sys.argv[1]
