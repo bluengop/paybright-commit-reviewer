@@ -49,7 +49,6 @@ def main():
     parser.add_argument("--filename",
                         help="Name for the CSV report file",
                         type=str,
-                        required=True,
                         default="export.csv")
     parser.add_argument("--required_review_num",
                         help="Required amount of reviews",
