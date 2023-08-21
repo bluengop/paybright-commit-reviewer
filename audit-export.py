@@ -1,17 +1,32 @@
-from headers import print_headers,get_filename,writeout
-from github import Github, RateLimitExceededException
+#from headers import print_headers,get_filename,writeout
+import argparse
 import hashlib
+import os
+from github import Github, RateLimitExceededException
 from datetime import datetime,timedelta
 from time import sleep
-import sys
-import argparse
 
-def write_commit_to_file(fp,repository,commit,reviews):
+
+def get_filename(file_name:str):
+    basename:str = os.path.basename(file_name)
+    segments = basename.split(".")
+    segment_count = len(segments)
+    if segment_count>1:
+        segments.pop()
+        return ".".join(segments)
+    else:
+        return file_name
+    
+def write_commit_to_file(fp, repository, commit, reviews):
     commit_detail = commit.commit
     detail=f'{commit_detail.author.date},{reviews},{commit.sha},{commit_detail.author.name},{commit_detail.author.email},https://github.com/{repository}/commit/{commit.sha}\n'
     print(detail)
-    writeout(fp,detail)
+    writeout(fp, detail)
     fp.flush()
+
+def writeout(fp, content:str):
+    fp.write(content)
+    print(content)
 
 def main():
     # Create argument parser
@@ -22,7 +37,7 @@ def main():
                         help="GitHub's Personal Access Token to access repos",
                         type=str,
                         required=True)
-    parser.add_argument("--repository",
+    parser.add_argument("--repo",
                         help="GitHub's repo for the commit review",
                         type=str,
                         required=True)      ### repository= f'Paybright/{sys.argv[2]}'  #"Paybright/Looker_paybright_project"
@@ -45,6 +60,9 @@ def main():
     
     args = parser.parse_args()
 
+    # Format repo name
+    repository = f"Paybright/{args.repo}"
+
     # Authenticate against GitHub's API using Personal Access Token
     github_api = Github(args.github_pat)
 
@@ -61,14 +79,18 @@ def main():
     endDate = startDate + timedelta(days=date_offset)
 
     # Generating filename for the resultant CSV report
-    file_name = f"{args.filename}_{startDate.strftime('%Y-%m-%d')}_{endDate.strftime('%Y-%m-%d')}"
+    fname = get_filename(args.filename)
+    file_name = f"{fname}_{startDate.strftime('%Y-%m-%d')}_{endDate.strftime('%Y-%m-%d')}"
     csv_file = f"{file_name}.csv"
     fp = open(csv_file, "w", buffering=1)
-    print_headers(fp)
+
+    # Print headers
+    fp.write("Commit Date,No. Reviews,Commit,Author,Email,Commit link\n")
     
+    # 
     index=0
    
-    repo = github_api.get_repo(args.repository)
+    repo = github_api.get_repo(repository)
     commits = repo.get_commits(args.branch, "", since=startDate, until=endDate)
 
     for commit in commits:
@@ -78,20 +100,17 @@ def main():
 
                 if pull_requests.totalCount == 0:
                     print(f'no commits, adding {commit.sha}')
-                    write_commit_to_file(fp,repository,commit,0)
-                    # writeout(fp,f'{commit_detail.author.date},0,{commit.sha},{commit_detail.author.name},{commit_detail.author.email},https://github.com/{repository}/commit/{commit.sha}\n')
+                    write_commit_to_file(fp, repository, commit, 0)
                     fp.flush()
                     index+=1
                 else:
                     for pull_request in pull_requests:
-                        completed=False
                         while True:
                             try:
                                 reviews = pull_request.get_reviews()
-                                if reviews.totalCount < required_review_num:
+                                if reviews.totalCount < args.required_review_num:
                                     commit_detail = commit.commit
-                                    write_commit_to_file(fp,repository,commit,reviews.totalCount)
-                                    # writeout(fp,f'{commit_detail.author.date},{reviews.totalCount},{commit.sha},{commit_detail.author.name},{commit_detail.author.email},https://github.com/{repository}/commit/{commit.sha}\n')
+                                    write_commit_to_file(fp, repository, commit, reviews.totalCount)
                                     index+=1
                                 break
                             except RateLimitExceededException:
@@ -112,7 +131,7 @@ def main():
 
     file_checksum = hashlib.md5(open(csv_file,'rb').read()).hexdigest()
     checksum_filename = f'{file_name}.hash'
-    fp = open(checksum_filename,"w",buffering=1)
+    fp = open(checksum_filename, "w", buffering=1)
 
     writeout(fp,f"Checksum: {file_checksum}\n")
     writeout(fp,f"Records: {index}\n")
