@@ -42,15 +42,15 @@ def main():
                         help="GitHub's repo for the commit review",
                         type=str,
                         required=True)
+    parser.add_argument("--branch",
+                        help="Git branch to review inside the repo",
+                        type=str,
+                        required=True)
     parser.add_argument("--filename",
                         help="Name for the CSV report file",
                         type=str,
                         required=True,
                         default="export.csv")
-    parser.add_argument("--branch",
-                        help="Git branch to review inside the repo",
-                        type=str,
-                        required=True)
     parser.add_argument("--required_review_num",
                         help="Required amount of reviews",
                         type=int,
