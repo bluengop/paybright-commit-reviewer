@@ -1,4 +1,5 @@
-#from headers import print_headers,get_filename,writeout
+#!/usr/bin/env python3
+
 import argparse
 import hashlib
 import os
