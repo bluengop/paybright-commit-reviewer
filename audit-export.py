@@ -40,11 +40,12 @@ def main():
     parser.add_argument("--repo",
                         help="GitHub's repo for the commit review",
                         type=str,
-                        required=True)      ### repository= f'Paybright/{sys.argv[2]}'  #"Paybright/Looker_paybright_project"
+                        required=True)
     parser.add_argument("--filename",
                         help="Name for the CSV report file",
                         type=str,
-                        required=True)      ### filename = get_filename(sys.argv[3])    #"export.csv"
+                        required=True,
+                        default="export.csv")
     parser.add_argument("--branch",
                         help="Git branch to review inside the repo",
                         type=str,
