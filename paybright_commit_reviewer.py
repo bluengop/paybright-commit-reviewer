@@ -5,6 +5,7 @@
 import argparse
 import sys
 import os
+import csv
 import json
 import logging
 from datetime import datetime, timedelta
@@ -12,6 +13,14 @@ from git_repo import get_commits
 
 
 PROJECT = 'Paybright'
+CSV_FIELDS = [
+    'Commit Date',
+    'No. Reviews',
+    'Commit',
+    'Author',
+    'Email',
+    'Commit link'
+]
 
 
 def setup_logger() -> logging.Logger:
@@ -76,23 +85,39 @@ def load_config(path: str) -> dict:
 
 
 def generate_csv(logger: logging.Logger,
+                 fields: list,
                  inputs: list,
-                 path: str) -> None:
-    """Generates a CSV with the results"""
-    contents = [['Commit Date,No. Reviews,Commit,Author,Email,Commit link']]
-    logger.info("Writing content to %s", path)
+                 csv_path: str) -> None:
+    """Generate a CSV file from a list of comma-separated strings"""
+
+    logger.info("Writing content to %s", csv_path)
+    rows = []
+
+    for line in inputs:
+        logger.debug("Appending %s to %s", line, csv_path)
+        rows.append(line)
 
     try:
-        with open(path, "a", encoding="utf-8") as csv:
-            contents.append(inputs)
-            for row in contents:
-                csv.write(str(row))
-        csv.close()
+        with open(csv_path, "w", encoding="utf-8") as file:
+            write = csv.writer(file)
+            write.writerow(fields)
+            write.writerows(rows)
+
+    except FileNotFoundError:
+        logger.error("File %s not found",
+                     csv_path)
+
+    except OSError as ose:
+        logger.error("OS error occurred trying to open %s: %s",
+                     csv_path,
+                     ose)
+
     except Exception as err:
-        logger.error("Unable to write contents to %s: %s",
-                     path,
+        logger.error("Unable to write CSV file %s: %s",
+                     csv_path,
                      err)
-    return
+
+    file.close()
 
 
 def check_commit_pulls(logger: logging.Logger,
@@ -120,15 +145,17 @@ def check_commit_pulls(logger: logging.Logger,
         for pull_request in pull_requests:
             reviews = pull_request.get_reviews()
             if reviews.totalCount < required_reviews:
-                row = (
-                    f'{commit_detail.author.date},'
-                    f'{reviews.totalCount},'
-                    f'{commit.sha},'
-                    f'{commit_detail.author.name},'
-                    f'{commit_detail.author.email},'
-                    f'https://github.com/{PROJECT}/commit/{commit.sha}\n'
-                )
-                logger.debug("Apending found commit: %s", row)
+                row = [
+                    f'{commit_detail.author.date}',
+                    f'{reviews.totalCount}',
+                    f'{commit.sha}',
+                    f'{commit_detail.author.name}',
+                    f'{commit_detail.author.email}',
+                    f'https://github.com/{PROJECT}/commit/{commit.sha}'
+                ]
+                logger.info("Apending found commit: %s", commit.sha)
+                logger.debug("Full commit information: %s", row)
+                
                 results.append(row)
 
     return results
@@ -159,10 +186,11 @@ def main() -> None:
         results = check_commit_pulls(logger=logger,
                                      commits=commits,
                                      required_reviews=args.required_review_num)
-        
+
         generate_csv(logger=logger,
+                     fields=CSV_FIELDS,
                      inputs=results,
-                     path=f"./export_{repo}_{timerange['end_date']}.csv")
+                     csv_path=f"./export_{repo}_{timerange['end_date']}.csv")
 
 
 if __name__ == "__main__":
