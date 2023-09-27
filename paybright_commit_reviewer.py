@@ -2,17 +2,26 @@
 
 """Paybright Commit Review v2.0.0"""
 
+from __future__ import absolute_import
 import argparse
+import hashlib
 import sys
 import os
 import csv
 import json
 import logging
 from datetime import datetime, timedelta
-from git_repo import get_commits
+
+from affirm.sre.http.clients.git_repo import get_commits
+from affirm.sre.http.clients.drive import Drive
+from affirm.sre.http.api.config import get_config
+#from ..clients.git_repo import get_commits
+#from ..clients.drive import Drive
+#from ..api.config import get_config
 
 
 PROJECT = 'Paybright'
+DRIVE_FOLDER = '1P2N7zqYVmvINp5-FQBiI1Sw16ocwQrJ7'
 CSV_FIELDS = [
     'Commit Date',
     'No. Reviews',
@@ -60,7 +69,7 @@ def setup_logger(loglevel: str) -> logging.Logger:
     if loglevel not in levels:
         loglevel = "INFO"
 
-    # Get logging level numeric value 
+    # Get logging level numeric value
     log_level = getattr(logging, loglevel)
 
     # Logging config
@@ -126,7 +135,7 @@ def load_config(path: str) -> dict:
 def generate_csv(logger: logging.Logger,
                  fields: list,
                  inputs: list,
-                 csv_path: str) -> None:
+                 path: str) -> str:
     """Generate a CSV file from a list of string lists"""
     rows = []
 
@@ -138,46 +147,96 @@ def generate_csv(logger: logging.Logger,
     if len(rows) > 1:
 
         try:
-            logger.info("Generating CSV file: %s",
-                        csv_path)
-            with open(csv_path, "w", encoding="utf-8") as file:
+            logger.debug(
+                "Generating CSV file: %s",
+                path
+            )
+            with open(f"{path}.csv", "w", encoding="utf-8") as file:
                 write = csv.writer(file)
                 write.writerow(fields)
                 write.writerows(rows)
             file.close()
+            return file.name
 
         except FileNotFoundError:
-            logger.error("File %s not found",
-                         csv_path)
+            logger.error(
+                "File %s not found",
+                path
+            )
+            return None
 
         except OSError as ose:
-            logger.error("OS error occurred trying to open %s: %s",
-                         csv_path,
-                         ose)
+            logger.error(
+                "OS error occurred trying to open %s: %s",
+                path,
+                ose
+            )
+            return None
 
         except Exception as err:
-            logger.error("Unable to write CSV file %s: %s",
-                         csv_path,
-                         err)
+            logger.error(
+                "Unable to write CSV file %s: %s",
+                path,
+                err
+            )
+            return None
 
 
-#def generate_hashfile():
-#   file_checksum = hashlib.md5(open(csv_file,'rb').read()).hexdigest()
-#   checksum_filename = f'{file_name}.hash'
-#   fp = open(checksum_filename,"w",buffering=1)
-#   writeout(fp,f"Checksum: {file_checksum}\n")
-#   writeout(fp,f"Records: {index}\n")
-#   writeout(fp,f"Date: {datetime.now().strftime('%Y-%m-%d')}\n")
+def generate_hashfile(logger: logging.Logger,
+                      file_path: str,
+                      records: int) -> str:
+    """Generate a MD5 hashfile from input file"""
+    hash_file = f"{file_path}.hash"
+    try:
+        md5_hash = hashlib.md5()
+
+        # Open the file in binary mode for reading
+        with open(file_path, 'rb') as file:
+            # Read the file in chunks to efficiently handle large files
+            while True:
+                chunk = file.read(4096)  # 4KB chunks
+                if not chunk:
+                    break
+                logger.debug(
+                    "Adding %s to %s",
+                    chunk,
+                    md5_hash
+                )
+                md5_hash.update(chunk)
+        file_checksum = md5_hash.hexdigest()
+        file.close()
+
+    except FileNotFoundError:
+        logger.error(
+            "file %s not found",
+            file_path
+        )
+        return None
+
+    try:
+        with open(hash_file, "a", encoding="utf-8") as hashfile:
+            hashfile.write(f"Checksum: {file_checksum}\n")
+            hashfile.write(f"Records: {records}\n")
+            hashfile.write(f"Date: {datetime.now().strftime('%Y-%m-%d')}\n")
+        hashfile.close()
+        return hashfile.name
+
+    except Exception as err:
+        logger.error(
+            "Unable to write hashfile: %s",
+            err
+        )
+        return None
 
 
 def check_commit_pulls(logger: logging.Logger,
                        commits,
-                       required_reviews: int):
+                       required_reviews: int) -> tuple[list[str], int]:
     """Check Pull-Requests per each Commit to check minimum reviews"""
     results = []
 
     for commit in commits:
-
+        index = 0
         # Write commit information
         row = CommitInfo(
             date=commit.commit.author.date,
@@ -214,8 +273,9 @@ def check_commit_pulls(logger: logging.Logger,
 
                 row.reviews = reviews.totalCount
                 results.append(row.list_info())
+                index += 1
 
-    return results
+    return results, index
 
 
 def main() -> None:
@@ -229,32 +289,70 @@ def main() -> None:
     timerange = calculate_timerange(logger, args.weeks)
 
     # Load config
-    config = load_config("./repos-branches.json")
+    # config = load_config("./repos-branches.json")
+    config = get_config()
+    config.repos_branches = load_config("./repos-branches.json")  # TODO: From ConfigMap
+    config.git_token = args.access_token
 
     # Check repo by repo
-    for repo in config:
+    files = []
+    for repo in config.repos_branches:
         repository = f"{PROJECT}/{repo}"
-        commits = get_commits(logger=logger,
-                              token=args.access_token,
-                              repo_name=repository,
-                              branch=config[repo],
-                              start_date=timerange['start_date'],
-                              end_date=timerange['end_date'])
+        commits = get_commits(
+            logger=logger,
+            token=config.git_token,
+            repo_name=repository,
+            branch=config[repo],
+            start_date=timerange['start_date'],
+            end_date=timerange['end_date']
+        )
 
-        results = check_commit_pulls(logger=logger,
-                                     commits=commits,
-                                     required_reviews=args.required_review_num)
+        results, records = check_commit_pulls(
+            logger=logger,
+            commits=commits,
+            required_reviews=args.required_review_num
+        )
 
         # Generate CSV file with results
-        csv_filename = (
+        report_filename = (
             f"{repo}_"
             f"{timerange['start_date'].strftime('%Y-%m-%d')}_"
-            f"{timerange['end_date'].strftime('%Y-%m-%d')}.csv"
+            f"{timerange['end_date'].strftime('%Y-%m-%d')}"
         )
-        generate_csv(logger=logger,
-                     fields=CSV_FIELDS,
-                     inputs=results,
-                     csv_path=f"./{csv_filename}")
+
+        report = generate_csv(
+            logger=logger,
+            fields=CSV_FIELDS,
+            inputs=results,
+            path=report_filename
+        )
+
+        if os.path.exists(report) and os.access(report, os.R_OK):
+            # Generate hashfile
+            hashfile = generate_hashfile(
+                logger=logger,
+                file_path=report,
+                records=records
+            )
+
+            # Append to files in order to upload them later:
+            files.append(report)
+            files.append(hashfile)
+
+    # Upload files to Drive:
+    drive = Drive(
+        config=config,
+        logger=logger
+    )
+    for file in files:
+        uploaded = drive.upload_file(
+            file,
+            DRIVE_FOLDER
+        )
+        logger.debug(
+            "File %s uploaded to drive",
+            uploaded
+        )
 
 
 if __name__ == "__main__":
